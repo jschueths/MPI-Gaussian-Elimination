@@ -34,11 +34,11 @@ default: gaussian
 
 %.o: %.cpp
 	@echo "Compiling $<"
-	@mpiCC -c $< -o $@
+	@mpic++ -c $< -o $@
 
 gaussian: $(OBJECTS)
 	@echo "Building $@"
-	@mpiCC $(OBJECTS) -o $@
+	@mpic++ $(OBJECTS) -o $@
 	@echo ""
 	@echo "Everything worked :-) "
 	@echo ""
