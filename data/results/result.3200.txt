@@ -1,0 +1,4 @@
+MPI Wall Time: 25.392
+Root node time: 25.392
+Determinant value: 6.43494e-12
+
