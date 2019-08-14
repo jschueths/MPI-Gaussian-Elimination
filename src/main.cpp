@@ -34,7 +34,6 @@ class RootLogger {
 
 int main(int argc, char* argv[]) {
     std::ifstream inFile;
-    int cur_control = 0;
 
     // Just get the initialization of the program going.
     auto [rank, size] = mpi_init(argc, argv);
@@ -81,98 +80,11 @@ int main(int argc, char* argv[]) {
     logger("Running Gaussian Elimination...");
     // Begin timing.
     CodeTimer timer;
+    GaussianEliminator gaussian(std::move(data), num_rows, num_cols, rank, size);
     MPI_Barrier(MPI_COMM_WORLD);
     auto sTime = MPI_Wtime();
     timer.start();
-
-    // Actual Gaussian code here.
-    /*Algorithm for Gaussian elimination (with pivoting):
-    Start with all the numbers stored in our NxN matrix A.
-    For each column p, we do the following (p=1..N)
-        First make sure that a(p,p) is non-zero and preferably large:
-        Look at the rows in our matrix below row p.  Look at the p'th
-        term in each row.  Select the row that has the largest absolute
-        value in the p'th term, and swap the p'th row with that one.
-        (optionally, you can only bother to do the above step if
-        a(p,p) is zero).
-    If we were fortunate enough to get a non-zero value for a(p,p),
-    then proceed with the following for loop:
-    For each row r below p, we do the following (r=p+1..N)
-        row(r) = row(r)  -  (a(r,p) / a(p,p)) * row(p)
-    End For
-    */
-    std::vector<double> send_buffer(num_rows);
-    size_t cur_row = 0;
-    size_t swaps = 0;
-    double det_val = 1;
-    size_t cur_index = 0;
-    for(size_t i = 0; i < num_rows; i++) {
-        // Find the row to swap with.
-        size_t rowSwap;
-        if(cur_control == rank) {
-            rowSwap = cur_row;
-            double max = data[cur_index][cur_row];
-            // Find the row to swap with.
-            for(size_t j = cur_row + 1; j < num_rows; j++) {
-                if(data[cur_index][j] > max) {
-                    rowSwap = j;
-                    max = data[cur_index][j];
-                }
-            }
-        }
-
-        // Find out if you need to swap and then act accordingly.
-        MPI_Bcast(&rowSwap, sizeof(size_t), MPI_BYTE, cur_control, MPI_COMM_WORLD);
-        if(rowSwap != cur_row) {
-          swap(data, num_cols, cur_row, rowSwap);
-          swaps++;
-        }
-
-        if(cur_control == rank) {
-            // Generate the coefficients.
-            for(size_t j = cur_row; j < num_rows; j++) {
-                send_buffer[j] = data[cur_index][j] / data[cur_index][cur_row];
-            }
-        }
-        // Send and recv the coefficients.
-        MPI_Bcast(send_buffer.data(), num_rows, MPI_DOUBLE, cur_control, MPI_COMM_WORLD);
-        // Apply the coefficients to the data.
-        for(size_t j = 0; j < num_cols; j++) {
-            for(size_t k = cur_row + 1; k < num_rows; k++) {
-                data[j][k] -= data[j][cur_row] * send_buffer[k];
-            }
-        }
-
-        // Update the determinant value.
-        if(cur_control == rank) {
-            det_val = det_val * data[cur_index][cur_row];
-            cur_index++;
-        }
-
-        // Increment the row that we are looking at
-        // and increment the counter that tells each process where
-        // to recv from. The counter resets to zero to give us a
-        // "round robin" communication pattern. Probably not very efficient,
-        // but it will do for now.
-        cur_control++;
-        if(cur_control == size) {
-            cur_control = 0;
-        }
-        cur_row++;
-    }
-
-    // Reduce all the determinant values from each process
-    // with a multiplication operation.
-    // Personally I really like the method I used to find the determinant:
-    //   1. Each process just keeps multiplying the pivot value into the product.
-    //   2. The reduce does a multiply on all of the individual products.
-    // So there really is no extra work to find the determinant.
-    double determinant;
-    MPI_Reduce(&det_val, &determinant, 1, MPI_DOUBLE, MPI_PROD, 0, MPI_COMM_WORLD);
-    // If we did an odd number of row swaps, negate the determinant.
-    if(swaps % 2) {
-        determinant = -determinant;
-    }
+    gaussian();
 
     // End timing.
     MPI_Barrier(MPI_COMM_WORLD);
@@ -185,7 +97,7 @@ int main(int argc, char* argv[]) {
     if(!rank) {
         std::cout << "MPI Wall Time: " << rTime << std::endl;
         std::cout << "Root node time: " << timer.duration().count() << std::endl;
-        std::cout << "Determinant value: " << determinant << std::endl;
+        std::cout << "Determinant value: " << gaussian.determinant() << std::endl;
     }
 
     // Finalize and exit.
