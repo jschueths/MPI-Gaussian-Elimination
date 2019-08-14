@@ -1,0 +1,6 @@
+Scattering data...
+Running Gaussian Elimination...
+MPI Wall Time: 3.18879
+Root node time: 3.18879
+Determinant value: 2.62238e+36
+
