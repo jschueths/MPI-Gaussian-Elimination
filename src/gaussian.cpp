@@ -15,10 +15,10 @@
 
 #include "gaussian.hpp"
 
-void sortByProcess(std::vector<double> list2, double* list1, size_t count, size_t size) {
+void sortByProcess(std::vector<double> list2, std::vector<double>& list1, size_t size) {
     size_t index = 0;
     for(size_t i = 0; i < size; i++) {
-        for(size_t j = i; j < count; j += size) {
+        for(size_t j = i; j < list1.size(); j += size) {
             list1[index] = list2[j];
             index++;
         }
