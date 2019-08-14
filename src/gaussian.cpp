@@ -25,7 +25,7 @@ void sortByProcess(std::vector<double> list2, double* list1, size_t count, size_
     }
 }
 
-void swap(double** list, size_t count, size_t row1, size_t row2) {
+void swap(std::vector<std::vector<double>>& list, size_t count, size_t row1, size_t row2) {
     if(row1 == row2) {
         return;
     }

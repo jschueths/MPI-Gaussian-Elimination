@@ -7,6 +7,6 @@
 void sortByProcess(std::vector<double> list1, double* list2, size_t count, size_t size);
 
 // Swaps two rows.
-void swap(double** list, size_t count, size_t row1, size_t row2);
+void swap(std::vector<std::vector<double>>& list, size_t count, size_t row1, size_t row2);
 
-#endif // GAUSSIAN_H
+#endif // GAUSSIAN_HPP

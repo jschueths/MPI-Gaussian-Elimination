@@ -1,13 +1,21 @@
 #include <fstream>
+#include <vector>
 
 #include <mpi.h>
 
 #include "codetimer.hpp"
 #include "gaussian.hpp"
 
-int main(int argc, char * argv[]) {
+auto mpi_init(int argc, char* argv[]) {
+    MPI_Init(&argc, &argv);
     int rank;
     int size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    return std::make_tuple(rank, size);
+}
+
+int main(int argc, char * argv[]) {
     std::ifstream inFile;
     size_t num_rows = 3200;
     size_t num_cols = 3200;
@@ -16,9 +24,7 @@ int main(int argc, char * argv[]) {
     std::vector<double> file_buffer;
 
     // Just get the initialization of the program going.
-    MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    auto [rank, size] = mpi_init(argc, argv);
 
     // If the input file is not given, print message and exit.
     if(argc < 2) {
@@ -34,37 +40,30 @@ int main(int argc, char * argv[]) {
         file_buffer.resize(num_rows);
     }
 
-    auto send_buffer = new double[num_rows];
     // Broadcasts the number of rows to each processor.
     MPI_Bcast (&num_rows, 1, MPI_INT, 0, MPI_COMM_WORLD);
     num_cols = num_rows / static_cast<size_t>(size);
     // Allocate the memory on each processor.
-    auto data = new double*[num_cols];
-    for(size_t i = 0; i < num_cols; i++) {
-        data[i] = new double[num_rows];
-    }
-    for(size_t i = 0; i < num_cols; i++) {
-        for(size_t j = 0; j < num_rows; j++) {
-            data[i][j] = 0;
-        }
-    }
-    auto recv_buffer = new double[num_cols];
-    // Scatter the data.
-    for(size_t i = 0; i < num_rows; i++) {
-        if(!rank) {
-            for(size_t j = 0; j < num_rows; j++) {
-                inFile >> file_buffer[j];
+    std::vector<std::vector<double>> data(num_cols, std::vector<double>(num_rows, 0.0));
+
+    {
+        std::vector<double> send_buffer(num_rows);
+        std::vector<double> recv_buffer(num_cols);
+        // Scatter the data.
+        for(size_t i = 0; i < num_rows; i++) {
+            if(!rank) {
+                for(size_t j = 0; j < num_rows; j++) {
+                    inFile >> file_buffer[j];
+                }
+                sortByProcess(file_buffer, send_buffer.data(), num_rows, size);
             }
-            sortByProcess(file_buffer, send_buffer, num_rows, size);
-        }
-        // Scatters the data so that each process gets the next value for their columns.
-        MPI_Scatter(send_buffer, num_cols, MPI_DOUBLE, recv_buffer, num_cols, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        for(size_t j = 0; j < num_cols; j++) {
-            data[j][i] = recv_buffer[j];
+            // Scatters the data so that each process gets the next value for their columns.
+            MPI_Scatter(send_buffer.data(), num_cols, MPI_DOUBLE, recv_buffer.data(), num_cols, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+            for(size_t j = 0; j < num_cols; j++) {
+                data[j][i] = recv_buffer[j];
+            }
         }
     }
-    delete [] recv_buffer;
-    delete [] send_buffer;
     // Begin timing.
     CodeTimer timer;
     MPI_Barrier(MPI_COMM_WORLD);
@@ -87,7 +86,7 @@ int main(int argc, char * argv[]) {
         row(r) = row(r)  -  (a(r,p) / a(p,p)) * row(p)
     End For
     */
-    send_buffer = new double[num_rows];
+    std::vector<double> send_buffer(num_rows);
     int cur_row = 0;
     int swaps = 0;
     double det_val = 1;
@@ -121,7 +120,7 @@ int main(int argc, char * argv[]) {
             }
         }
         // Send and recv the coefficients.
-        MPI_Bcast(send_buffer, num_rows, MPI_DOUBLE, cur_control, MPI_COMM_WORLD);
+        MPI_Bcast(send_buffer.data(), num_rows, MPI_DOUBLE, cur_control, MPI_COMM_WORLD);
         // Apply the coefficients to the data.
         for(size_t j = 0; j < num_cols; j++) {
             for(size_t k = cur_row + 1; k < num_rows; k++) {
@@ -172,13 +171,6 @@ int main(int argc, char * argv[]) {
         std::cout << "Root node time: " << timer.duration().count() << std::endl;
         std::cout << "Determinant value: " << determinant << std::endl;
     }
-
-    // A bit of house cleaning.
-    delete [] send_buffer;
-    for(size_t i = 0; i < num_cols; i++){
-        delete [] data[i];
-    }
-    delete [] data;
 
     // Finalize and exit.
     MPI_Finalize();
