@@ -15,32 +15,44 @@ auto mpi_init(int argc, char* argv[]) {
     return std::make_tuple(rank, size);
 }
 
-class RootLogger {
-    public:
-        RootLogger(int nodeId) : mId(nodeId) {}
-        void operator()(std::string_view s) {
-            if(mId == 0) {
-                std::cout << s << newl;
+auto scatter_data(size_t rows, size_t cols, int rank, int size, std::istream& in) {
+    std::vector<std::vector<double>> data(cols, std::vector<double>(rows, 0.0));
+    std::vector<double> send_buffer(rows);
+    std::vector<double> recv_buffer(cols);
+    std::vector<double> file_buffer(rows);
+    // Scatter the data.
+    for(size_t i = 0; i < rows; i++) {
+        if(!rank) {
+            for(auto& val : file_buffer) {
+                in >> val;
             }
+            sortByProcess(file_buffer, send_buffer, size);
         }
+        // Scatters the data so that each process gets the next value for their columns.
+        MPI_Scatter(send_buffer.data(), cols, MPI_DOUBLE, recv_buffer.data(), cols, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        for(size_t j = 0; j < cols; j++) {
+            data[j][i] = recv_buffer[j];
+        }
+    }
+    return data;
+}
 
-    private:
-        int mId{0};
-        static std::ostream& newl(std::ostream& out) {
-            out << '\n';
-            return out;
-        }
-};
+auto& newl(std::ostream& out) {
+    out << '\n';
+    return out;
+}
 
 int main(int argc, char* argv[]) {
     std::ifstream inFile;
 
     // Just get the initialization of the program going.
     auto [rank, size] = mpi_init(argc, argv);
-    RootLogger logger(rank);
+
     // If the input file is not given, print message and exit.
     if(argc < 2) {
-        logger("No input file given.");
+        if(rank == 0) {
+            std::cout << "No input file given." << newl;
+        }
         MPI_Finalize();
         return 0;
     }
@@ -55,31 +67,20 @@ int main(int argc, char* argv[]) {
     // Broadcasts the number of rows to each processor.
     MPI_Bcast(&num_rows, sizeof(size_t), MPI_BYTE, 0, MPI_COMM_WORLD);
     size_t num_cols = num_rows / static_cast<size_t>(size);
-    // Allocate the memory on each processor.
-    std::vector<std::vector<double>> data(num_cols, std::vector<double>(num_rows, 0.0));
-    logger("Scattering data...");
-    {
-        std::vector<double> send_buffer(num_rows);
-        std::vector<double> recv_buffer(num_cols);
-        std::vector<double> file_buffer(num_rows);
-        // Scatter the data.
-        for(size_t i = 0; i < num_rows; i++) {
-            if(!rank) {
-                for(auto& val : file_buffer) {
-                    inFile >> val;
-                }
-                sortByProcess(file_buffer, send_buffer, size);
-            }
-            // Scatters the data so that each process gets the next value for their columns.
-            MPI_Scatter(send_buffer.data(), num_cols, MPI_DOUBLE, recv_buffer.data(), num_cols, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-            for(size_t j = 0; j < num_cols; j++) {
-                data[j][i] = recv_buffer[j];
-            }
-        }
-    }
-    logger("Running Gaussian Elimination...");
-    // Begin timing.
+    if(rank == 0) {
+        std::cout << "Scattering data..." << newl;
+    };
+
+    // Scatter the data to all processors
     CodeTimer timer;
+    timer.start();
+    auto data = scatter_data(num_rows, num_cols, rank, size, inFile);
+    timer.stop();
+    if(rank == 0) {
+        std::cout << "Scattering completed in: " << timer.duration().count() << " sec" << newl;
+        std::cout << "Running Gaussian Elimination..." << newl;
+    }
+    // Begin timing and gaussian elimination.
     GaussianEliminator gaussian(std::move(data), num_rows, num_cols, rank, size);
     MPI_Barrier(MPI_COMM_WORLD);
     auto sTime = MPI_Wtime();
@@ -95,9 +96,9 @@ int main(int argc, char* argv[]) {
 
     // If root node, output the runtime.
     if(!rank) {
-        std::cout << "MPI Wall Time: " << rTime << std::endl;
-        std::cout << "Root node time: " << timer.duration().count() << std::endl;
-        std::cout << "Determinant value: " << gaussian.determinant() << std::endl;
+        std::cout << "MPI Wall Time: " << rTime << " sec" << newl;
+        std::cout << "Root node time: " << timer.duration().count() << " sec" << newl;
+        std::cout << "Determinant value: " << gaussian.determinant() << "sec" << newl;
     }
 
     // Finalize and exit.
