@@ -98,7 +98,7 @@ int main(int argc, char* argv[]) {
     if(!rank) {
         std::cout << "MPI Wall Time: " << rTime << " sec" << newl;
         std::cout << "Root node time: " << timer.duration().count() << " sec" << newl;
-        std::cout << "Determinant value: " << gaussian.determinant() << "sec" << newl;
+        std::cout << "Determinant value: " << gaussian.determinant() << newl;
     }
 
     // Finalize and exit.
